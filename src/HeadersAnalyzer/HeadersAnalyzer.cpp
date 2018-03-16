@@ -30,6 +30,7 @@
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <yaml-cpp/yaml.h>
+#include <retdec/bin2llvmir/providers/abi.h>
 
 // Private header files.
 #include <llvm/lib/Target/ARM/ARMISelLowering.h>
@@ -76,6 +77,20 @@ public:
 
         // TODO: also check that the function has the same signature in WinObjC headers
         // inside the (NuGet) packages folder
+
+        // Generate LLVM IR from the declaration.
+        // TODO: Where is this used in LLVM code?
+        auto func = static_cast<llvm::Function *>(cg_->GetAddrOfGlobal(GlobalDecl(&f), /*isForDefinition*/false));
+
+        // Create ARM Architecture.
+        // TODO: Where and how is this initialized in retdec code?
+        retdec::config::Architecture arch;
+        arch.setIsArm();
+        // TODO: Also set endianness(?)
+
+        // Get ARM ABI from retdec. This is actually not used anywhere insider retdec
+        // at the time of writing, so we just guess how to initialize it.
+        retdec::bin2llvmir::Abi abi(retdec::bin2llvmir::Abi::armCdecl(func->getParent(), arch));
     }
 private:
     llvm::LLVMContext ctx_;

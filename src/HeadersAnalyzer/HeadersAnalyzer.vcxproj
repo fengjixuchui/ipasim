@@ -90,13 +90,13 @@
       <SDLCheck>false</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\llvm\build\win32\lib\Target\ARM;$(ProjectDir)..\..\deps;$(ProjectDir)..\..\deps\yaml-cpp\include;$(ProjectDir)..\..\deps\clang\include;$(ProjectDir)..\..\deps\llvm\include;$(ProjectDir)..\..\deps\llvm\build\win32\include;$(ProjectDir)..\..\deps\llvm\build\win32\tools\clang\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\retdec\build\win32\external\src\jsoncpp-project\include;$(ProjectDir)..\..\deps\retdec\include;$(ProjectDir)..\..\deps\llvm\build\win32\lib\Target\ARM;$(ProjectDir)..\..\deps;$(ProjectDir)..\..\deps\yaml-cpp\include;$(ProjectDir)..\..\deps\clang\include;$(ProjectDir)..\..\deps\llvm\include;$(ProjectDir)..\..\deps\llvm\build\win32\include;$(ProjectDir)..\..\deps\llvm\build\win32\tools\clang\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(ProjectDir)..\..\deps\llvm\build\win32\$(Configuration)\lib\</AdditionalLibraryDirectories>
-      <AdditionalDependencies>mincore.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\..\deps\retdec\build\win32\external\src\jsoncpp-project-build\src\lib_json\$(Configuration);$(ProjectDir)..\..\deps\llvm\build\win32\$(Configuration)\lib\</AdditionalLibraryDirectories>
+      <AdditionalDependencies>jsoncpp.lib;mincore.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -107,13 +107,13 @@
       <SDLCheck>false</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\llvm\build\win32\lib\Target\ARM;$(ProjectDir)..\..\deps;$(ProjectDir)..\..\deps\yaml-cpp\include;$(ProjectDir)..\..\deps\clang\include;$(ProjectDir)..\..\deps\llvm\include;$(ProjectDir)..\..\deps\llvm\build\win32\include;$(ProjectDir)..\..\deps\llvm\build\win32\tools\clang\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\retdec\build\win32\external\src\jsoncpp-project\include;$(ProjectDir)..\..\deps\retdec\include;$(ProjectDir)..\..\deps\llvm\build\win32\lib\Target\ARM;$(ProjectDir)..\..\deps;$(ProjectDir)..\..\deps\yaml-cpp\include;$(ProjectDir)..\..\deps\clang\include;$(ProjectDir)..\..\deps\llvm\include;$(ProjectDir)..\..\deps\llvm\build\win32\include;$(ProjectDir)..\..\deps\llvm\build\win32\tools\clang\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(ProjectDir)..\..\deps\llvm\build\win32\$(Configuration)\lib\</AdditionalLibraryDirectories>
-      <AdditionalDependencies>mincore.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\..\deps\retdec\build\win32\external\src\jsoncpp-project-build\src\lib_json\$(Configuration);$(ProjectDir)..\..\deps\llvm\build\win32\$(Configuration)\lib\</AdditionalLibraryDirectories>
+      <AdditionalDependencies>jsoncpp.lib;mincore.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -126,15 +126,15 @@
       <SDLCheck>false</SDLCheck>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\llvm\build\win32\lib\Target\ARM;$(ProjectDir)..\..\deps;$(ProjectDir)..\..\deps\yaml-cpp\include;$(ProjectDir)..\..\deps\clang\include;$(ProjectDir)..\..\deps\llvm\include;$(ProjectDir)..\..\deps\llvm\build\win32\include;$(ProjectDir)..\..\deps\llvm\build\win32\tools\clang\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\retdec\build\win32\external\src\jsoncpp-project\include;$(ProjectDir)..\..\deps\retdec\include;$(ProjectDir)..\..\deps\llvm\build\win32\lib\Target\ARM;$(ProjectDir)..\..\deps;$(ProjectDir)..\..\deps\yaml-cpp\include;$(ProjectDir)..\..\deps\clang\include;$(ProjectDir)..\..\deps\llvm\include;$(ProjectDir)..\..\deps\llvm\build\win32\include;$(ProjectDir)..\..\deps\llvm\build\win32\tools\clang\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(ProjectDir)..\..\deps\llvm\build\win32\$(Configuration)\lib\</AdditionalLibraryDirectories>
-      <AdditionalDependencies>mincore.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\..\deps\retdec\build\win32\external\src\jsoncpp-project-build\src\lib_json\$(Configuration);$(ProjectDir)..\..\deps\llvm\build\win32\$(Configuration)\lib\</AdditionalLibraryDirectories>
+      <AdditionalDependencies>jsoncpp.lib;mincore.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -147,15 +147,15 @@
       <SDLCheck>false</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\llvm\build\win32\lib\Target\ARM;$(ProjectDir)..\..\deps;$(ProjectDir)..\..\deps\yaml-cpp\include;$(ProjectDir)..\..\deps\clang\include;$(ProjectDir)..\..\deps\llvm\include;$(ProjectDir)..\..\deps\llvm\build\win32\include;$(ProjectDir)..\..\deps\llvm\build\win32\tools\clang\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\retdec\build\win32\external\src\jsoncpp-project\include;$(ProjectDir)..\..\deps\retdec\include;$(ProjectDir)..\..\deps\llvm\build\win32\lib\Target\ARM;$(ProjectDir)..\..\deps;$(ProjectDir)..\..\deps\yaml-cpp\include;$(ProjectDir)..\..\deps\clang\include;$(ProjectDir)..\..\deps\llvm\include;$(ProjectDir)..\..\deps\llvm\build\win32\include;$(ProjectDir)..\..\deps\llvm\build\win32\tools\clang\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(ProjectDir)..\..\deps\llvm\build\win32\$(Configuration)\lib\</AdditionalLibraryDirectories>
-      <AdditionalDependencies>mincore.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\..\deps\retdec\build\win32\external\src\jsoncpp-project-build\src\lib_json\$(Configuration);$(ProjectDir)..\..\deps\llvm\build\win32\$(Configuration)\lib\</AdditionalLibraryDirectories>
+      <AdditionalDependencies>jsoncpp.lib;mincore.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -410,6 +410,9 @@
     </ProjectReference>
     <ProjectReference Include="..\..\deps\llvm\build\win32\utils\LLVMVisualizers\LLVMVisualizers.vcxproj">
       <Project>{d344f4e6-70eb-3bc2-8763-9ce08089da36}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\deps\retdec\build\win32\src\bin2llvmir\retdec-bin2llvmir.vcxproj">
+      <Project>{9eb585f4-2c7c-34af-9aae-388c25224476}</Project>
     </ProjectReference>
     <ProjectReference Include="..\..\deps\yaml-cpp\build\win32\yaml-cpp.vcxproj">
       <Project>{6140452b-4b75-3a59-bf5d-afd1bdd0b56b}</Project>
