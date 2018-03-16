@@ -76,105 +76,11 @@ public:
 
         // TODO: also check that the function has the same signature in WinObjC headers
         // inside the (NuGet) packages folder
-
-        // We will simply assume arguments are in r0-r3 or on stack for starters.
-        // Inspired by /res/IHI0042F_aapcs.pdf (AAPCS), section 5.5 Parameter Passing.
-
-        uint8_t r = 0; // register offset (AAPCS's NCRN)
-        uint64_t s = 0; // stack offset (relative AAPCS's NSAA)
-
-        llvm::outs() << f.getName() << "(";
-        auto fpt = static_cast<const FunctionProtoType *>(ft);
-        for (auto &pt : fpt->param_types()) {
-            auto bytes = toBytes(ci_.getASTContext().getTypeSize(pt));
-
-            // Cast to the correct type.
-            llvm::outs() << "(" << pt.getAsString() << ")";
-
-            if (r == 4) {
-                // We used all the registers, this argument is on the stack.
-                llvm::outs() << "STACK(" << to_string(s) << ", " << to_string(bytes) << ")";
-                s += bytes;
-            }
-            else {
-                assert(bytes <= 4 && "we can only handle max. 32-byte-long data for now");
-                llvm::outs() << "REG(" << to_string(r) << ")"; 
-                ++r;
-            }
-        }
-        llvm::outs() << ");\n\n";
-
-#if 0
-        // generate LLVM IR from the declaration
-        auto func = cg_->GetAddrOfGlobal(GlobalDecl(&f), /*isForDefinition*/false);
-        auto ffunc = static_cast<llvm::Function *>(func);
-
-        // generate code calling this function using Unicorn's state
-
-        // retrieve target
-        string err;
-        auto tt = "arm-apple-darwin"; // TODO: obviously, don't hardcode the Triple
-        auto t = llvm::TargetRegistry::lookupTarget(tt, err);
-        assert(t && "target not found");
-
-        // create target machine
-        auto tm = t->createTargetMachine(tt, /*CPU*/ "generic", /*Features*/ "",
-            llvm::TargetOptions(), llvm::Optional<llvm::Reloc::Model>());
-
-        // =============================================
-
-        // Create SelectionDAGISel.
-        // TODO: Where is this done in LLVM? Is this properly initialized?
-        auto armTm = reinterpret_cast<llvm::ARMBaseTargetMachine *>(tm);
-        auto fp = llvm::createARMISelDag(*armTm, llvm::CodeGenOpt::Level::None); // ARMPassConfig::addInstSelector <- TargetPassConfig::addCoreISelPasses <- TargetPassConfig::addISelPasses <- addPassesToGenerateCode (LLVMTargetMachine.cpp) <- LLVMTargetMachine::addPassesToEmitFile or LLVMTargetMachine::addPassesToEmitMC
-        auto isel = static_cast<llvm::SelectionDAGISel *>(fp);
-        // TODO: isel is definitely not properly initialized, it doesn't have MachineFunction!
-        // TODO: We should probably run isel.runOnMachineFunction (or at least do the same initialization it does),
-        // but first find where it is done in LLVM to "inspire" by it.
-
-        // Create Callee.
-        // Inspired by SelectionDAGBuilder::visitInvoke.
-        llvm::SDValue callee(isel->SDB->getValue(ffunc));
-
-        // Create Args.
-        // Inspired by SelectionDAGBuilder::LowerCallTo.
-        llvm::TargetLowering::ArgListTy args;
-        args.reserve(ffunc->arg_size());
-        for (auto &arg : ffunc->args()) {
-            // Skip empty values.
-            if (arg.getType()->isEmptyTy()) { continue; }
-
-            llvm::TargetLowering::ArgListEntry entry;
-            entry.Node = isel->SDB->getValue(&arg);
-            entry.Ty = arg.getType();
-            args.push_back(entry);
-        }
-
-        // Create CallLoweringInfo.
-        // Inspired by SelectionDAGBuilder::LowerCallTo.
-        llvm::TargetLowering::CallLoweringInfo cli(*isel->CurDAG);
-        cli.setDebugLoc(isel->SDB->getCurSDLoc())
-            .setChain(isel->SDB->getRoot())
-            .setCallee(ffunc->getCallingConv(), ffunc->getReturnType(), callee, move(args))
-            .setTailCall(false) // TODO: Support tail calls (?)
-            .setConvergent(ffunc->isConvergent());
-
-        // Lower call.
-        // Inspired by SelectionDAGBuilder::lowerInvokable.
-        auto result = isel->TLI->LowerCallTo(cli);
-
-        // =============================================
-#endif
     }
 private:
     llvm::LLVMContext ctx_;
     CompilerInstance &ci_;
     CodeGenerator *cg_;
-
-    uint64_t toBytes(uint64_t bits) {
-        assert(bits % 8 == 0 && "integral bytes expected");
-        return bits / 8;
-    }
 };
 
 class CustomASTVisitor : public RecursiveASTVisitor<CustomASTVisitor> {
