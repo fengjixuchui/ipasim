@@ -9,3 +9,6 @@
 [submodule "deps/yaml-cpp"]
 	path = deps/yaml-cpp
 	url = https://github.com/jbeder/yaml-cpp.git
+[submodule "deps/retdec"]
+	path = deps/retdec
+	url = https://github.com/avast-tl/retdec

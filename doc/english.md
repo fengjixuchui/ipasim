@@ -17,7 +17,7 @@ A list of them follows.
 
 - `clang` and `llvm` (in `deps` folder) - just pull the latest *stable* version from the remote repository, run the `cmake` as described below and make sure no new projects were added nor any old projects removed (or re-add the whole solution as described above).
   Then rebuild `IpaSimulator` (which doesn't use those libraries right now, but its dependent library, `HeadersAnalyzer`, does).
-- `yaml-cpp` - the same old story.
+- `yaml-cpp` and `retdec` - the same old story.
 - `WinObjC` (in `packages` folder) - just restore NuGet packages for the `IpaSimulator` project to get the latest `WinObjC` files (`.h` files used by `HeadersAnalyzer` and `.dll`s used by the very `IpaSimulator`).
 - `LiefPort` and `UnicornPort` (in `lib` folder) - not easy to update right now since there are lots of changes from the original version.
   This should be easier in the future either by making them submodules or using `clang` libraries instead.
@@ -28,7 +28,15 @@ A list of them follows.
 
 1. Checkout the repository and make sure submodules are checked out as well.
 2. Install `cmake` and make sure it's in your `PATH` environment variable.
-3. Run the following commands:
+3. Install prerequisites required by third-party dependencies:
+   - [Active Perl](https://www.activestate.com/activeperl).
+     It needs to be the first Perl in `PATH`, or it has to be provided to CMake using `CMAKE_PROGRAM_PATH` variable, e.g. `-DCMAKE_PROGRAM_PATH=/c/perl/bin`.
+     [Required by `retdec`.]
+   - [Flex](https://sourceforge.net/projects/gnuwin32/files/flex/) and [Bison](https://sourceforge.net/projects/gnuwin32/files/bison/).
+     The `bin` folder needs to be added to `PATH` manually.
+     [Required by `retdec`.]
+4. Run the following commands:
+
    ```cmd
    cd deps\llvm
    mkdir build && cd build
@@ -41,9 +49,14 @@ A list of them follows.
    mkdir build && cd build
    mkdir win32 && cd win32
    cmake -G "Visual Studio 15" -Thost=x64 ..\..
+   cd ..\..\retdec
+   mkdir build && cd build
+   mkdir win32 && cd win32
+   cmake -G "Visual Studio 15" -Thost=x64 ..\..
    ```
+
    **TODO: probably remove the `-Thost=x64` option and allow only 32-bit Windows for tooling/compilation and ARM + 32-bit Windows for running the app.**
-4. If projects were successfully generated, you can open the `IPASimulator.sln`.
+5. If projects were successfully generated, you can open the `IPASimulator.sln`.
 
 ## How does it work
 
