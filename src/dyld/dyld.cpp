@@ -17,13 +17,17 @@ public:
     }
     operator bool() { return handle_; }
     FARPROC get_symbol(LPCSTR name) { return GetProcAddress(handle_, name); }
+    HMODULE get_handle() { return handle_; }
 private:
     HMODULE handle_;
 };
 
+typedef extern "C" void (*dyld_initializer)(HINSTANCE const /* instance */);
+
 struct dylib_info {
     const char *path;
     const mach_header *header;
+    const dyld_initializer initializer;
 };
 
 struct dylib_handlers {
@@ -36,16 +40,27 @@ vector<dylib_info> dylibs;
 vector<dylib_handlers> handlers;
 
 static const uint8_t *bytes(const void *ptr) { return reinterpret_cast<const uint8_t *>(ptr); }
-void found_dylib(const char *path, const mach_header *mh) {
+void found_dylib(const char *path, const mach_header *mh, const dyld_initializer initializer) {
     // Check if we haven't already processed this one.
-    for (auto &&dylib : dylibs) {
-        if (dylib.header == mh) {
-            return;
+    if (mh) {
+        for (auto &&dylib : dylibs) {
+            if (dylib.header == mh) {
+                return;
+            }
+        }
+    }
+    else {
+        for (auto &&dylib : dylibs) {
+            if (dylib.initializer == initializer) {
+                return;
+            }
         }
     }
 
     // Save it.
-    dylibs.push_back(dylib_info{ path, mh });
+    dylibs.push_back(dylib_info{ path, mh, initializer });
+
+    if (!mh) { return; }
 
     // Parse load commands.
     intptr_t slide = 0;
@@ -61,10 +76,11 @@ void found_dylib(const char *path, const mach_header *mh) {
 
             // Try to get its Mach-O header.
             if (auto lib = library_guard(name)) {
-                if (auto sym = reinterpret_cast<const mach_header *>(lib.get_symbol("_mh_dylib_header"))) {
+                if (auto sym = reinterpret_cast<const mach_header *>(lib.get_symbol("_mh_dylib_header")) ||
+                    auto init = reinterpret_cast<const dyld_initializer>(lib.get_symbol("dyld_initializer"))) {
 
                     // If successfull, save it and find others recursively.
-                    found_dylib(name, sym);
+                    found_dylib(name, sym, init);
                 }
             }
         }
@@ -114,17 +130,36 @@ void handle_dylibs(size_t startIndex) {
     vector<const mach_header *> headers;
     headers.reserve(dylibs.size() - startIndex);
     for (ptrdiff_t i = dylibs.size() - 1, end = startIndex - 1; i != end; --i) {
-        paths.push_back(dylibs[i].path);
-        headers.push_back(dylibs[i].header);
+        dylib_info &dylib = dylibs[i];
+        if (dylib.header) {
+            paths.push_back(dylib.path);
+            headers.push_back(dylib.header);
+        }
     }
 
+    // Call handlers registered through `_dyld_objc_notify_register`. This will initialize Objective-C runtime.
     for (auto &&handler : handlers) {
         handler.mapped(headers.size(), paths.data(), headers.data());
 
-        for (ptrdiff_t i = dylibs.size() - 1, end = startIndex - 1; i != end; --i) {
-            handler.init(dylibs[i].path, dylibs[i].header);
+        for (size_t i = 0, end = headers.size(); i != end; ++i) {
+            handler.init(paths[i], headers[i]);
         }
     }
+
+    // Call entrypoints. This will initialize C++ runtime.
+    for (ptrdiff_t i = dylibs.size() - 1, end = startIndex - 1; i != end; --i) {
+        dylib_info &dylib = dylibs[i];
+        if (dylib.initializer) {
+            library_guard lib(dylib.path);
+            dylib.initializer(lib.get_handle());
+        }
+    }
+
+    // Why this order of initialization? Because that's what WinObjC libraries expect. In CoreFoundation,
+    // function `_CFInitialize` (called in C++ initialization) expects Objective-C to be already initialized.
+    
+    // Why do we need to call C++ initialization ourselves? That's mainly because of UIKit-AutoLayout circular
+    // dependency - when AutoLayout initializes itself (inside Objective-C initialization).... TODO: That's wrong.
 }
 void _dyld_initialize(const mach_header* mh) {
 
