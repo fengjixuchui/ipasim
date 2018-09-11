@@ -589,10 +589,13 @@ public:
 
 class TypeComparer {
 public:
-  // TODO: Maybe we could get `ClangCtx` from LLDB instead of creating it.
-  TypeComparer(lldb_private::SymbolFile *SymbolFile)
-      : ClangCtx(), Parser(ClangCtx) {
-    ClangCtx.SetSymbolFile(SymbolFile);
+  TypeComparer(lldb_private::Module &Module) {
+    using namespace lldb_private;
+
+    TypeSystem *TypeSystem =
+        Module.GetTypeSystemForLanguage(lldb::eLanguageTypeC_plus_plus);
+    auto ClangCtx = static_cast<ClangASTContext *>(TypeSystem);
+    Parser = ClangCtx->GetPDBParser();
   }
 
   bool areEquivalent(const llvm::Type &Type1,
@@ -601,7 +604,7 @@ public:
     using namespace llvm::pdb;
     using namespace lldb_private;
 
-    TypeSP LLDBType2 = Parser.CreateLLDBTypeFromPDBType(Type2);
+    TypeSP LLDBType2 = Parser->CreateLLDBTypeFromPDBType(Type2);
     QualType CanonType2 =
         ClangUtil::GetCanonicalQualType(LLDBType2->GetFullCompilerType());
 
@@ -629,8 +632,7 @@ public:
   }
 
 private:
-  lldb_private::ClangASTContext ClangCtx;
-  PDBASTParser Parser;
+  PDBASTParser *Parser;
 };
 
 class SBDebuggerGuard {
@@ -743,7 +745,7 @@ int main() {
         SymbolFile *SymbolFile = SymbolFilePDB::CreateInstance(&Obj);
         SymbolFile->CalculateAbilities(); // Initialization, actually.
         SymbolFilePDB *PDB = static_cast<SymbolFilePDB *>(SymbolFile);
-        TypeComparer TC(SymbolFile);
+        TypeComparer TC(*Module);
 
         // Process functions.
         auto SymbolExe = PDB->GetPDBSession().getGlobalScope();
