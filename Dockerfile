@@ -25,4 +25,13 @@ RUN powershell -c "choco install llvm --version 7.0.0 -y"
 # we add a symlink `rc` -> `llvm-rc`.
 RUN mklink "C:/Program Files/LLVM/bin/rc.exe" "C:/Program Files/LLVM/bin/llvm-rc.exe"
 
+# Install `patch`.
+RUN powershell -c "choco install patch --version 2.5.9 -y"
+
+# Apply CMake patches.
+COPY contrib/cmake/rc.patch contrib/cmake/rc.patch
+RUN pushd "C:/Program Files/CMake/share/cmake-3.12/Modules/" && \
+    powershell -c "cat C:/project/contrib/cmake/rc.patch | patch -p1" && \
+    popd
+
 CMD powershell -f scripts/build.ps1
