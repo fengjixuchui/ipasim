@@ -331,10 +331,9 @@ public:
           assert(IR.isBigEndian() == DylibIR.isBigEndian() &&
                  "Inconsistency in endianness.");
 
-        // Declare reference function.
-        // TODO: What if there are no non-Objective-C functions?
-        llvm::Function *RefFunc =
-            !DLL.ReferenceFunc ? nullptr : IR.declareFunc(*DLL.ReferenceFunc);
+        // Declare reference symbol.
+        llvm::Constant *RefSymbol = IR.Module.getOrInsertGlobal(
+            "\01__mh_dylib_header", llvm::Type::getInt32Ty(LLVM.Ctx));
 
         // Generate function wrappers.
         for (const ExportEntry &Exp : deref(DLL.Exports)) {
@@ -404,19 +403,14 @@ public:
           if (Exp.ObjCMethod) {
             // Objective-C methods are not exported, so we call them by
             // computing their address using their RVA.
-            if (!DLL.ReferenceFunc) {
-              reportError("no reference function, cannot emit Objective-C "
-                          "method DLL wrappers (" +
-                          DLL.Name + ")");
-              continue;
-            }
 
-            // Add RVA to the reference function's address.
-            llvm::Value *Addr =
-                llvm::ConstantInt::getSigned(llvm::Type::getInt32Ty(LLVM.Ctx),
-                                             Exp.RVA - DLL.ReferenceFunc->RVA);
-            llvm::Value *RefPtr = IR.Builder.CreateBitCast(
-                RefFunc, llvm::Type::getInt8PtrTy(LLVM.Ctx));
+            // Add RVA to the reference symbol's address. Note that this expects
+            // `__mh_dylib_header` (the reference symbol) to be at address 0.
+            llvm::Value *Addr = llvm::ConstantInt::getSigned(
+                llvm::Type::getInt32Ty(LLVM.Ctx), Exp.RVA);
+            // TODO: Why is this needed?
+            llvm::Value *RefPtr =
+                IR.Builder.CreateBitCast(RefSymbol, VoidPtrTy);
             llvm::Value *ComputedPtr = IR.Builder.CreateInBoundsGEP(
                 llvm::Type::getInt8Ty(LLVM.Ctx), RefPtr, Addr);
             llvm::Value *FP = IR.Builder.CreateBitCast(

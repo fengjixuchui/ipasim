@@ -68,6 +68,7 @@ public:
   static const char *const Apple;
 
   llvm::IRBuilder<> Builder;
+  llvm::Module Module;
 
   bool isLittleEndian() const {
     return Module.getDataLayout().isLittleEndian();
@@ -90,7 +91,6 @@ public:
 
 private:
   LLVMHelper &LLVM;
-  llvm::Module Module;
   std::unique_ptr<llvm::TargetMachine> TM;
   llvm::FunctionType *WrapperTy, *TrivialWrapperTy;
 };
