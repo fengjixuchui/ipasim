@@ -287,7 +287,11 @@ BinaryPath DynamicLoader::resolvePath(const string &Path) {
 LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
   using namespace LIEF::MachO;
 
-  auto LL = make_unique<LoadedDylib>(Parser::parse(Path));
+  // Memory-map the file.
+  mio::ummap_source MM(Path);
+  vector<uint8_t> Data(MM.begin(), MM.end());
+
+  auto LL = make_unique<LoadedDylib>(move(MM), Parser::parse(Data, Path));
   LoadedDylib *LLP = LL.get();
 
   // TODO: Select the correct binary more intelligently.
@@ -326,11 +330,9 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
     }
   }
 
-  // Allocate space for the segments.
+  // Calculate slide and size of the segments.
   uint64_t Size = HighAddr - LowAddr;
-  uintptr_t Addr = (uintptr_t)_aligned_malloc(Size, PageSize);
-  if (!Addr)
-    error("couldn't allocate memory for segments");
+  uintptr_t Addr = reinterpret_cast<uintptr_t>(Data.data());
   uint64_t Slide = Addr - LowAddr;
   LLP->StartAddress = Slide;
   LLP->Size = Size;

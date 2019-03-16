@@ -906,7 +906,7 @@ inline mmap_context memory_map(const file_handle_type file_handle, const int64_t
     const auto file_mapping_handle = ::CreateFileMapping(
             file_handle,
             0,
-            mode == access_mode::read ? PAGE_READONLY : PAGE_READWRITE,
+            mode == access_mode::read ? PAGE_WRITECOPY : PAGE_READWRITE,
             win::int64_high(max_file_size),
             win::int64_low(max_file_size),
             0);
@@ -917,7 +917,7 @@ inline mmap_context memory_map(const file_handle_type file_handle, const int64_t
     }
     char* mapping_start = static_cast<char*>(::MapViewOfFile(
             file_mapping_handle,
-            mode == access_mode::read ? FILE_MAP_READ : FILE_MAP_WRITE,
+            mode == access_mode::read ? FILE_MAP_COPY : FILE_MAP_WRITE,
             win::int64_high(aligned_offset),
             win::int64_low(aligned_offset),
             length_to_map));

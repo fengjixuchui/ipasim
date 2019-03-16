@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include <cstdarg>
 #include <functional>
+#include <mio.hpp>
 #include <stack>
 #include <string>
 #include <unicorn/unicorn.h>
@@ -30,13 +31,15 @@ class LoadedDylib : public LoadedLibrary {
 public:
   LIEF::MachO::Binary &Bin;
 
-  LoadedDylib(std::unique_ptr<LIEF::MachO::FatBinary> &&Fat)
-      : Fat(move(Fat)), Bin(Fat->at(0)) {}
+  LoadedDylib(mio::ummap_source &&MM,
+              std::unique_ptr<LIEF::MachO::FatBinary> &&Fat)
+      : MM(std::move(MM)), Fat(move(Fat)), Bin(Fat->at(0)) {}
   uint64_t findSymbol(DynamicLoader &DL, const std::string &Name) override;
   bool hasUnderscorePrefix() override { return true; }
   uint64_t getSection(const std::string &Name, uint64_t *Size) override;
 
 private:
+  mio::ummap_source MM;
   std::unique_ptr<LIEF::MachO::FatBinary> Fat;
 };
 

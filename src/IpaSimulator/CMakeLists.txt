@@ -8,7 +8,8 @@ target_compile_options (IpaSimLibrary PRIVATE -std=c++17 -fcoroutines-ts)
 
 target_include_directories (IpaSimLibrary PRIVATE
     # For `WrapperIndex.hpp`
-    "${SOURCE_DIR}/src/HeadersAnalyzer/include")
+    "${SOURCE_DIR}/src/HeadersAnalyzer/include"
+    "${SOURCE_DIR}/lib/mio")
 
 target_compile_definitions (IpaSimLibrary PRIVATE
     # To enable coroutines support in C++/WinRT.
