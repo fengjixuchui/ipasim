@@ -970,11 +970,6 @@ AddrInfo DynamicLoader::lookup(uint64_t Addr) {
 // TODO: Find symbol name and also use this function to implement
 // `src/objc/dladdr.mm`.
 AddrInfo DynamicLoader::inspect(uint64_t Addr) { return lookup(Addr); }
-void *DynamicLoader::getRetVal() {
-  uint32_t Reg;
-  callUC(uc_reg_read(UC, UC_ARM_REG_R0, &Reg));
-  return reinterpret_cast<void *>(Reg);
-}
 // Calling `uc_emu_start` inside `emu_start` (e.g., inside a hook) is not very
 // good idea. Instead, we need to call it when emulation completely stops (i.e.,
 // Unicorn returns from `uc_emu_start`). That's what this function is used for.
@@ -1225,81 +1220,84 @@ const char *LoadedLibrary::getMethodType(uint64_t Addr) {
   return nullptr;
 }
 
-static void noop() {}
-static void *returningWrapper() { return IpaSim.Dyld.getRetVal(); }
-
-// If `Addr` points to emulated code, returns address of wrapper that should be
-// called instead. Otherwise, returns `Addr` unchanged.
-void *DynamicLoader::translate(void *Addr, va_list Args) {
+// If `Addr` points to emulated code, calls it dynamically. Otherwise, calls the
+// original function pointed to by `Addr`.
+void *DynamicLoader::jumpBack(void *Addr, va_list Args) {
   uint64_t AddrVal = reinterpret_cast<uint64_t>(Addr);
   AddrInfo AI(lookup(AddrVal));
-  if (auto *Dylib = dynamic_cast<LoadedDylib *>(AI.Lib)) {
-    // The address points to Dylib.
+  if (!dynamic_cast<LoadedDylib *>(AI.Lib)) {
+    // The address points to a native function. Since we didn't extract any
+    // `Args`, this should work as if we forwarded the arguments.
+    return reinterpret_cast<void *(*)()>(Addr)();
+  }
 
-    if (const char *T = Dylib->getMethodType(AddrVal)) {
-      // We have found metadata of the callback method. Now, for simple
-      // methods, it's actually quite simple to translate i386 -> ARM calls
-      // dynamically, so that's what we do here.
-      // TODO: Generate wrappers for callbacks, too (see README of
-      // `HeadersAnalyzer` for more details).
-      OutputDebugStringA("Info: dynamically handling callback of type ");
-      OutputDebugStringA(T);
-      OutputDebugStringA(".\n");
+  // The address points to a Dylib.
 
-      // First, handle the return value.
-      TypeDecoder TD(*this, T);
-      bool Returns;
-      switch (TD.getNextTypeSize()) {
-      case 0:
-        Returns = false;
-        break;
-      case 4:
-        Returns = true;
-        break;
-      default:
-        error("unsupported return type of callback");
-        return nullptr;
-      }
+  if (const char *T = AI.Lib->getMethodType(AddrVal)) {
+    // We have found metadata of the callback method. Now, for simple
+    // methods, it's actually quite simple to translate i386 -> ARM calls
+    // dynamically, so that's what we do here.
+    // TODO: Generate wrappers for callbacks, too (see README of
+    // `HeadersAnalyzer` for more details). Or generate them at runtime using
+    // `libffi`, `ffcall`, `libffcall` or some other FFI library.
+    OutputDebugStringA("Info: dynamically handling callback of type ");
+    OutputDebugStringA(T);
+    OutputDebugStringA(".\n");
 
-      // First variadic argument is actually return address on top of the
-      // stack. Just skip that.
-      va_arg(Args, uint32_t);
-
-      // Next, process function arguments.
-      int RegId = UC_ARM_REG_R0;
-      while (TD.hasNext()) {
-        switch (TD.getNextTypeSize()) {
-        case TypeDecoder::InvalidSize:
-          return nullptr;
-        case 4: {
-          uint32_t I32 = va_arg(Args, uint32_t);
-          if (RegId > UC_ARM_REG_R3) {
-            error("callback has too many arguments");
-            return nullptr;
-          }
-          callUC(uc_reg_write(UC, RegId++, &I32));
-          break;
-        }
-        default:
-          error("unsupported callback argument type");
-          return nullptr;
-        }
-      }
-
-      // Finally, call the function.
-      execute(AddrVal);
-
-      // Since we already called the function, return a no-op.
-      if (Returns)
-        return reinterpret_cast<void *>(returningWrapper);
-      return reinterpret_cast<void *>(noop);
+    // First, handle the return value.
+    TypeDecoder TD(*this, T);
+    bool Returns;
+    switch (TD.getNextTypeSize()) {
+    case 0:
+      Returns = false;
+      break;
+    case 4:
+      Returns = true;
+      break;
+    default:
+      error("unsupported return type of callback");
+      return nullptr;
     }
 
-    error("callback not found");
+    // First variadic argument is actually return address on top of the
+    // stack. Just skip that.
+    va_arg(Args, uint32_t);
+
+    // Next, process function arguments.
+    int RegId = UC_ARM_REG_R0;
+    while (TD.hasNext()) {
+      switch (TD.getNextTypeSize()) {
+      case TypeDecoder::InvalidSize:
+        return nullptr;
+      case 4: {
+        uint32_t I32 = va_arg(Args, uint32_t);
+        if (RegId > UC_ARM_REG_R3) {
+          error("callback has too many arguments");
+          return nullptr;
+        }
+        callUC(uc_reg_write(UC, RegId++, &I32));
+        break;
+      }
+      default:
+        error("unsupported callback argument type");
+        return nullptr;
+      }
+    }
+
+    // Finally, call the function.
+    execute(AddrVal);
+
+    // Extract the return value.
+    if (Returns) {
+      uint32_t Reg;
+      callUC(uc_reg_read(UC, UC_ARM_REG_R0, &Reg));
+      return reinterpret_cast<void *>(Reg);
+    }
     return nullptr;
   }
 
-  return Addr;
+  error("callback not found");
+  return nullptr;
 }
 
 void DynamicLoader::callLoad(void *load, void *self, void *sel) {
@@ -1327,23 +1325,17 @@ void DynamicLoader::callLoad(void *load, void *self, void *sel) {
   }
 }
 
-extern "C" __declspec(dllexport) void *ipaSim_translate(void *Addr...) {
+extern "C" __declspec(dllexport) void *ipaSim_jumpBack(void *Addr...) {
   va_list Args;
   va_start(Args, Addr);
-  void *Result = IpaSim.Dyld.translate(Addr, Args);
+  void *Result = IpaSim.Dyld.jumpBack(Addr, Args);
   va_end(Args);
   return Result;
-}
-extern "C" __declspec(dllexport) void ipaSim_translate4(uint32_t *Addr...) {
-  va_list Args;
-  va_start(Args, Addr);
-  Addr[1] = reinterpret_cast<uint32_t>(
-      IpaSim.Dyld.translate(reinterpret_cast<void *>(Addr[1]), Args));
-  va_end(Args);
 }
 extern "C" __declspec(dllexport) const char *ipaSim_processPath() {
   return IpaSim.MainBinary.c_str();
 }
+// TODO: Merge with `callBack2` when we fix the bug with `__ARCLite__`.
 extern "C" __declspec(dllexport) void ipaSim_callLoad(void *load, void *self,
                                                       void *sel) {
   IpaSim.Dyld.callLoad(load, self, sel);
@@ -1351,12 +1343,15 @@ extern "C" __declspec(dllexport) void ipaSim_callLoad(void *load, void *self,
 extern "C" __declspec(dllexport) void ipaSim_callBack1(void *FP, void *arg0) {
   IpaSim.Dyld.callBack(FP, arg0);
 }
-extern "C" __declspec(dllexport) void ipaSim_callBack2(void *FP, void *arg0, void *arg1) {
+extern "C" __declspec(dllexport) void ipaSim_callBack2(void *FP, void *arg0,
+                                                       void *arg1) {
   IpaSim.Dyld.callBack(FP, arg0, arg1);
 }
 extern "C" __declspec(dllexport) void *ipaSim_callBack1r(void *FP, void *arg0) {
   return IpaSim.Dyld.callBackR(FP, arg0);
 }
-extern "C" __declspec(dllexport) void *ipaSim_callBack3r(void *FP, void *arg0, void *arg1, void *arg2) {
+extern "C" __declspec(dllexport) void *ipaSim_callBack3r(void *FP, void *arg0,
+                                                         void *arg1,
+                                                         void *arg2) {
   return IpaSim.Dyld.callBackR(FP, arg0, arg1, arg2);
 }

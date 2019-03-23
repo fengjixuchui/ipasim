@@ -67,8 +67,7 @@ public:
   DynamicLoader(uc_engine *UC);
   LoadedLibrary *load(const std::string &Path);
   void execute(LoadedLibrary *Lib);
-  void *translate(void *Addr, va_list Args);
-  void *getRetVal();
+  void *jumpBack(void *Addr, va_list Args);
   void callLoad(void *load, void *self, void *sel);
   template <typename... ArgTypes> bool callBack(void *FP, ArgTypes... Args) {
     return DynamicBackCaller(*this).callBack<ArgTypes...>(FP, Args...);
@@ -192,15 +191,15 @@ private:
         // native executable code and we can simply call it.
         reinterpret_cast<void (*)(ArgTypes...)>(FP)(Args...);
         return true;
-      } else {
-        // Target load method is inside some emulated library.
-
-        if (!pushArgs(Args...))
-          return false;
-
-        Dyld.execute(Addr);
-        return true;
       }
+
+      // Target load method is inside some emulated library.
+
+      if (!pushArgs(Args...))
+        return false;
+
+      Dyld.execute(Addr);
+      return true;
     }
     template <typename... ArgTypes>
     void *callBackR(void *FP, ArgTypes... Args) {
