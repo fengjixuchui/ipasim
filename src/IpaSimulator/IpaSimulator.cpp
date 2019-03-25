@@ -313,7 +313,8 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
     error("the binary is not slideable");
 
   // Compute total size of all segments. Note that in Mach-O, segments must
-  // slide together (see `ImageLoaderMachO::segmentsMustSlideTogether`).
+  // slide together (see `ImageLoaderMachO::segmentsMustSlideTogether`). See
+  // also `ImageLoaderMachO::assignSegmentAddresses`.
   uint64_t VirtualSize = 0;
   uint64_t FileSize = 0;
   for (SegmentCommand &Seg : Bin.segments()) {
@@ -374,7 +375,7 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
   assert((Addr & (SI.dwPageSize - 1)) == 0 &&
          "Allocated memory is not aligned to page size.");
 
-  // Map the segments.
+  // Map the segments. Inspired by `ImageLoaderMachO::mapSegments`.
   bool Error = false;
   for (SegmentCommand &Seg : Bin.segments()) {
     void *SuggestedAddr =
@@ -437,6 +438,22 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
       // Clear the memory.
       memset(RestAddr, 0, Rest);
     }
+
+    // Convert protection.
+    uint32_t VMProt = Seg.init_protection();
+    uc_prot Perms = UC_PROT_NONE;
+    if (VMProt & (uint32_t)VM_PROTECTIONS::VM_PROT_READ) {
+      Perms |= UC_PROT_READ;
+    }
+    if (VMProt & (uint32_t)VM_PROTECTIONS::VM_PROT_WRITE) {
+      Perms |= UC_PROT_WRITE;
+    }
+    if (VMProt & (uint32_t)VM_PROTECTIONS::VM_PROT_EXECUTE) {
+      Perms |= UC_PROT_EXEC;
+    }
+
+    // Emulated virtual address is actually equal to the "real" virtual address.
+    mapMemory(Addr + Seg.virtual_address(), Seg.virtual_size(), Perms);
   }
   assert((Error || RestOffset == RestSize) &&
          "Not all of virtual-only memory was used.");
