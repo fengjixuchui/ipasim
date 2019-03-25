@@ -74,7 +74,8 @@ add_custom_target (AngleBinaries
         "${IPASIM_CMAKE_DIR}/bin/libGLESv2.dll")
 add_dependencies (IpaSimLibrary AngleBinaries)
 
-target_link_libraries (IpaSimLibrary PRIVATE WindowsApp.lib unicorn LIEF ffi)
+target_link_libraries (IpaSimLibrary PRIVATE
+    WindowsApp.lib mincore.lib unicorn LIEF ffi)
 
 # TODO: Actually build AppX with this target.
 add_custom_target (IpaSimApp)

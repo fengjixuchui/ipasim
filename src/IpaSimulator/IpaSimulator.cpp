@@ -272,9 +272,23 @@ BinaryPath DynamicLoader::resolvePath(const string &Path) {
   // TODO: Handle also `.ipa`-relative paths.
   return BinaryPath{Path, filesystem::path(Path).is_relative()};
 }
+static uint32_t getLow(uint64_t Val) {
+  LARGE_INTEGER LI;
+  LI.QuadPart = Val;
+  return LI.LowPart;
+}
+static uint32_t getHigh(uint64_t Val) {
+  LARGE_INTEGER LI;
+  LI.QuadPart = Val;
+  return LI.HighPart;
+}
 LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
   using namespace LIEF::MachO;
 
+  unique_ptr<FatBinary> Fat(Parser::parse(Path, ParserConfig::quick()));
+  Binary &Bin = Fat->at(0);
+
+#if 0
   auto LL = make_unique<LoadedDylib>(Parser::parse(Path));
   LoadedDylib *LLP = LL.get();
 
@@ -282,6 +296,7 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
   Binary &Bin = LL->Bin;
 
   LIs[Path] = move(LL);
+#endif
 
   // Check header.
   Header &Hdr = Bin.header();
@@ -313,9 +328,66 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
       HighAddr = SegHigh;
     }
   }
+  uint64_t Size = HighAddr - LowAddr;
+
+  // Retrieve system's page size.
+  SYSTEM_INFO SI;
+  GetSystemInfo(&SI);
+
+  // Open the file for memory-mapping.
+  HANDLE File =
+      CreateFileA(Path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (File == INVALID_HANDLE_VALUE) {
+    error("couldn't open file " + Path, /* AppendLastError */ true);
+    return nullptr;
+  }
+  HANDLE Mapping = CreateFileMappingA(File, nullptr, PAGE_WRITECOPY,
+                                      getHigh(Size), getLow(Size), nullptr);
+  if (!Mapping) {
+    error("couldn't create mapping for Dylib " + Path,
+          /* AppendLastError */ true);
+    return nullptr;
+  }
 
   // Allocate space for the segments.
-  uint64_t Size = HighAddr - LowAddr;
+  void *Ptr = VirtualAlloc2(nullptr, nullptr, Size,
+                            MEM_RESERVE | MEM_RESERVE_PLACEHOLDER,
+                            PAGE_NOACCESS, nullptr, 0);
+  uint64_t Addr = reinterpret_cast<uint64_t>(Ptr);
+  assert((Addr & (SI.dwPageSize - 1)) == 0 &&
+         "Allocated memory is not aligned to page size.");
+
+  // Map the segments.
+  for (SegmentCommand &Seg : Bin.segments()) {
+    if (Seg.file_size()) {
+      void *SuggestedAddr =
+          reinterpret_cast<void *>(Addr + Seg.virtual_address());
+
+      // First, release placeholder.
+      if (!VirtualFree(SuggestedAddr, Seg.virtual_size(),
+                       MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER)) {
+        error("couldn't release placeholder for segment " + Seg.name() +
+                  " of " + Path,
+              /* AppendLastError */ true);
+        return nullptr;
+      }
+
+      // Then, do memory-mapping.
+      void *SegAddr = MapViewOfFile3(
+          Mapping, nullptr, SuggestedAddr, Seg.file_offset(), Seg.file_size(),
+          MEM_REPLACE_PLACEHOLDER, PAGE_WRITECOPY, nullptr, 0);
+      if (!SegAddr) {
+        error("couldn't map segment " + Seg.name() + " of " + Path,
+              /* AppendLastError */ true);
+        return nullptr;
+      }
+      assert(SegAddr == SuggestedAddr &&
+             "MapViewOfFile3 didn't map to suggested address.");
+    }
+  }
+
+#if 0
   uintptr_t Addr = (uintptr_t)_aligned_malloc(Size, PageSize);
   if (!Addr)
     error("couldn't allocate memory for segments");
@@ -433,6 +505,9 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
   }
 
   return LLP;
+#else
+  return nullptr;
+#endif
 }
 LoadedLibrary *DynamicLoader::loadPE(const string &Path) {
   using namespace LIEF::PE;
