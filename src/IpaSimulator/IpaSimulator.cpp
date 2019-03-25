@@ -289,6 +289,27 @@ static uint32_t getHigh(uint64_t Val) {
 LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
   using namespace LIEF::MachO;
 
+  // Open the file for memory-mapping.
+  HANDLE File =
+      CreateFileA(Path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (File == INVALID_HANDLE_VALUE) {
+    error("couldn't open file " + Path, /* AppendLastError */ true);
+    return nullptr;
+  }
+  LARGE_INTEGER FileSizeLI;
+  if (!GetFileSizeEx(File, &FileSizeLI)) {
+    error("couldn't get size of file " + Path, /* AppendLastError */ true);
+    return nullptr;
+  }
+  HANDLE FileMapping =
+      CreateFileMappingA(File, nullptr, PAGE_WRITECOPY, FileSizeLI.HighPart,
+                         FileSizeLI.LowPart, nullptr);
+  if (!FileMapping) {
+    error("couldn't create mapping for " + Path, /* AppendLastError */ true);
+    return nullptr;
+  }
+
   unique_ptr<FatBinary> Fat(Parser::parse(Path, ParserConfig::quick()));
   Binary &Bin = Fat->at(0);
 
@@ -325,26 +346,12 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
     error("virtual size is less than file size of " + Path);
     return nullptr;
   }
+  if (FileSize > FileSizeLI.QuadPart)
+    error("size of file " + Path + " is invalid");
 
   // Retrieve system's page size.
   SYSTEM_INFO SI;
   GetSystemInfo(&SI);
-
-  // Open the file for memory-mapping.
-  HANDLE File =
-      CreateFileA(Path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (File == INVALID_HANDLE_VALUE) {
-    error("couldn't open file " + Path, /* AppendLastError */ true);
-    return nullptr;
-  }
-  HANDLE FileMapping =
-      CreateFileMappingA(File, nullptr, PAGE_WRITECOPY, getHigh(FileSize),
-                         getLow(FileSize), nullptr);
-  if (!FileMapping) {
-    error("couldn't create mapping for " + Path, /* AppendLastError */ true);
-    return nullptr;
-  }
 
   // Also create section for virtual-only memory.
   uint64_t RestSize = VirtualSize - FileSize;
