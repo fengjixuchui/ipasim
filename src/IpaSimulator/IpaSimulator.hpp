@@ -30,15 +30,13 @@ class LoadedDylib : public LoadedLibrary {
 public:
   LIEF::MachO::Binary &Bin;
 
-  LoadedDylib(std::vector<uint8_t> &&Bytes,
-              std::unique_ptr<LIEF::MachO::FatBinary> &&Fat)
-      : Bytes(move(Bytes)), Fat(move(Fat)), Bin(Fat->at(0)) {}
+  LoadedDylib(std::unique_ptr<LIEF::MachO::FatBinary> &&Fat)
+      : Fat(move(Fat)), Bin(Fat->at(0)) {}
   uint64_t findSymbol(DynamicLoader &DL, const std::string &Name) override;
   bool hasUnderscorePrefix() override { return true; }
   uint64_t getSection(const std::string &Name, uint64_t *Size) override;
 
 private:
-  std::vector<uint8_t> Bytes;
   std::unique_ptr<LIEF::MachO::FatBinary> Fat;
 };
 

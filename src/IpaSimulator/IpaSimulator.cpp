@@ -38,6 +38,18 @@ static const uint8_t *bytes(const void *Ptr) {
   return reinterpret_cast<const uint8_t *>(Ptr);
 }
 
+template <typename F> class GeneralGuard {
+public:
+  GeneralGuard(F &&Lambda) : Lambda(move(Lambda)) {}
+  ~GeneralGuard() { Lambda(); }
+
+private:
+  F Lambda;
+};
+template <typename F> static GeneralGuard<F> guard(F &&Lambda) {
+  return GeneralGuard<F>(move(Lambda));
+}
+
 template <typename T> static string to_hex_string(T Value) {
   std::stringstream SS;
   SS << std::hex << Value;
@@ -317,7 +329,6 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
   }
 
   // Memory-map the whole file for parsing.
-  // TODO: Due to this, we have the file twice in virtual memory.
   void *PPtr =
       MapViewOfFile(FileMapping, FILE_MAP_READ, 0, 0, FileSizeLI.QuadPart);
   if (!PPtr) {
@@ -325,13 +336,21 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
     return nullptr;
   }
 
-  // Get bytes.
-  vector<uint8_t> Bytes(bytes(PPtr), bytes(PPtr) + FileSizeLI.QuadPart);
+  unique_ptr<LoadedDylib> LL;
+  {
+    // Unmap the view after we finish parsing.
+    auto G(guard([&]() {
+      if (!UnmapViewOfFile(PPtr))
+        error("couldn't unmap file " + Path, /* AppendLastError */ true);
+    }));
 
-  // Parse the binary.
-  unique_ptr<FatBinary> Fat(Parser::parse(Bytes, Path));
-  auto LL = make_unique<LoadedDylib>(move(Bytes), move(Fat));
-  // TODO: Select the correct binary more intelligently.
+    // Get bytes.
+    vector<uint8_t> Bytes(bytes(PPtr), bytes(PPtr) + FileSizeLI.QuadPart);
+
+    // Parse the binary.
+    // TODO: Select the correct binary more intelligently.
+    LL = make_unique<LoadedDylib>(Parser::parse(Bytes, Path));
+  }
   Binary &Bin = LL->Bin;
 
   // Check header.
