@@ -310,25 +310,16 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
 
   // Compute total size of all segments. Note that in Mach-O, segments must
   // slide together (see `ImageLoaderMachO::segmentsMustSlideTogether`).
-  // Inspired by `ImageLoaderMachO::assignSegmentAddresses`.
-  uint64_t LowAddr = (uint64_t)(-1);
-  uint64_t HighAddr = 0;
+  uint64_t VirtualSize = 0;
+  uint64_t FileSize = 0;
   for (SegmentCommand &Seg : Bin.segments()) {
-    uint64_t SegLow = Seg.virtual_address();
-    // Round to page size (as required by unicorn and what even dyld does).
-    uint64_t SegHigh = roundToPageSize(SegLow + Seg.virtual_size());
-    if ((SegLow < HighAddr && SegLow >= LowAddr) ||
-        (SegHigh > LowAddr && SegHigh <= HighAddr)) {
-      error("overlapping segments (after rounding to pagesize)");
-    }
-    if (SegLow < LowAddr) {
-      LowAddr = SegLow;
-    }
-    if (SegHigh > HighAddr) {
-      HighAddr = SegHigh;
-    }
+    VirtualSize += Seg.virtual_size();
+    FileSize += Seg.file_size();
   }
-  uint64_t Size = HighAddr - LowAddr;
+  if (VirtualSize < FileSize) {
+    error("virtual size is less than file size of " + Path);
+    return nullptr;
+  }
 
   // Retrieve system's page size.
   SYSTEM_INFO SI;
@@ -342,50 +333,109 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
     error("couldn't open file " + Path, /* AppendLastError */ true);
     return nullptr;
   }
-  HANDLE Mapping = CreateFileMappingA(File, nullptr, PAGE_WRITECOPY,
-                                      getHigh(Size), getLow(Size), nullptr);
-  if (!Mapping) {
-    error("couldn't create mapping for Dylib " + Path,
-          /* AppendLastError */ true);
+  HANDLE FileMapping =
+      CreateFileMappingA(File, nullptr, PAGE_WRITECOPY, getHigh(FileSize),
+                         getLow(FileSize), nullptr);
+  if (!FileMapping) {
+    error("couldn't create mapping for " + Path, /* AppendLastError */ true);
     return nullptr;
   }
 
+  // Also create section for virtual-only memory.
+  uint64_t RestSize = VirtualSize - FileSize;
+  HANDLE RestMapping;
+  if (RestSize) {
+    RestMapping =
+        CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
+                           getHigh(RestSize), getLow(RestSize), nullptr);
+    if (!RestMapping) {
+      error("couldn't create virtual-only mapping for " + Path,
+            /* AppendLastError */ true);
+      return nullptr;
+    }
+  } else
+    RestMapping = nullptr;
+  uint64_t RestOffset = 0;
+
   // Allocate space for the segments.
-  void *Ptr = VirtualAlloc2(nullptr, nullptr, Size,
+  void *Ptr = VirtualAlloc2(nullptr, nullptr, VirtualSize,
                             MEM_RESERVE | MEM_RESERVE_PLACEHOLDER,
                             PAGE_NOACCESS, nullptr, 0);
+  if (!Ptr) {
+    error("couldn't allocate space for " + Path,
+          /* AppendLastError */ true);
+    return nullptr;
+  }
   uint64_t Addr = reinterpret_cast<uint64_t>(Ptr);
   assert((Addr & (SI.dwPageSize - 1)) == 0 &&
          "Allocated memory is not aligned to page size.");
 
   // Map the segments.
+  bool Error = false;
   for (SegmentCommand &Seg : Bin.segments()) {
+    void *SuggestedAddr =
+        reinterpret_cast<void *>(Addr + Seg.virtual_address());
+
+    // First, release placeholder.
+    if (!VirtualFree(SuggestedAddr, Seg.virtual_size(),
+                     MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER)) {
+      error("couldn't release placeholder for segment " + Seg.name() + " of " +
+                Path,
+            /* AppendLastError */ true);
+      Error = true;
+      continue;
+    }
+
+    // Then, do memory-mapping.
     if (Seg.file_size()) {
-      void *SuggestedAddr =
-          reinterpret_cast<void *>(Addr + Seg.virtual_address());
-
-      // First, release placeholder.
-      if (!VirtualFree(SuggestedAddr, Seg.virtual_size(),
-                       MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER)) {
-        error("couldn't release placeholder for segment " + Seg.name() +
-                  " of " + Path,
-              /* AppendLastError */ true);
-        return nullptr;
-      }
-
-      // Then, do memory-mapping.
       void *SegAddr = MapViewOfFile3(
-          Mapping, nullptr, SuggestedAddr, Seg.file_offset(), Seg.file_size(),
-          MEM_REPLACE_PLACEHOLDER, PAGE_WRITECOPY, nullptr, 0);
+          FileMapping, nullptr, SuggestedAddr, Seg.file_offset(),
+          Seg.file_size(), MEM_REPLACE_PLACEHOLDER, PAGE_WRITECOPY, nullptr, 0);
       if (!SegAddr) {
         error("couldn't map segment " + Seg.name() + " of " + Path,
               /* AppendLastError */ true);
-        return nullptr;
+        Error = true;
+        continue;
       }
       assert(SegAddr == SuggestedAddr &&
              "MapViewOfFile3 didn't map to suggested address.");
     }
+
+    // Finally, map the remaining virtual-only memory.
+    if (Seg.virtual_size() < Seg.file_size()) {
+      error("virtual size is less then file size of segment " + Seg.name() +
+            " of " + Path);
+      Error = true;
+      continue;
+    }
+    uint64_t Rest = Seg.virtual_size() - Seg.file_size();
+    if (Rest) {
+      assert(RestSize && RestMapping &&
+             "Unexpected virtual-only part of a segment.");
+      void *SuggestedRestAddr = reinterpret_cast<void *>(
+          Addr + Seg.virtual_address() + Seg.file_size());
+
+      // Map the memory.
+      void *RestAddr = MapViewOfFile3(RestMapping, nullptr, SuggestedRestAddr,
+                                      RestOffset, Rest, MEM_REPLACE_PLACEHOLDER,
+                                      PAGE_READWRITE, nullptr, 0);
+      if (!RestAddr) {
+        error("couldn't map virtual-only part of segment " + Seg.name() +
+                  " of " + Path,
+              /* AppendLastError */ true);
+        Error = true;
+        continue;
+      }
+      assert(RestAddr == SuggestedRestAddr &&
+             "MapViewOfFile3 didn't map to suggested address.");
+      RestOffset += Rest;
+
+      // Clear the memory.
+      memset(RestAddr, 0, Rest);
+    }
   }
+  assert((Error || RestOffset == RestSize) &&
+         "Not all of virtual-only memory was used.");
 
 #if 0
   uintptr_t Addr = (uintptr_t)_aligned_malloc(Size, PageSize);
