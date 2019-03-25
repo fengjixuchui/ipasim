@@ -286,6 +286,18 @@ static uint32_t getHigh(uint64_t Val) {
   LI.QuadPart = Val;
   return LI.HighPart;
 }
+class MapViewGuard {
+public:
+  MapViewGuard(void *Ptr) : Ptr(Ptr) {}
+  ~MapViewGuard() noexcept(false) {
+    // TODO: Handle errors better.
+    if (!UnmapViewOfFile(Ptr))
+      throw "couldn't unmap";
+  }
+
+private:
+  void *Ptr;
+};
 LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
   using namespace LIEF::MachO;
 
@@ -310,7 +322,19 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
     return nullptr;
   }
 
-  unique_ptr<FatBinary> Fat(Parser::parse(Path, ParserConfig::quick()));
+  // Memory-map the whole file for parsing.
+  void *PPtr =
+      MapViewOfFile(FileMapping, FILE_MAP_READ, 0, 0, FileSizeLI.QuadPart);
+  if (!PPtr) {
+    error("couldn't map file " + Path, /* AppendLastError */ true);
+    return nullptr;
+  }
+  MapViewGuard MVG(PPtr);
+
+  // Get bytes.
+  vector<uint8_t> Bytes(bytes(PPtr), bytes(PPtr) + FileSizeLI.QuadPart);
+
+  unique_ptr<FatBinary> Fat(Parser::parse(Bytes, Path));
   Binary &Bin = Fat->at(0);
 
 #if 0
@@ -346,6 +370,7 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
     error("virtual size is less than file size of " + Path);
     return nullptr;
   }
+  // The rest of the file are probably the other architectures in fat binary.
   if (FileSize > FileSizeLI.QuadPart)
     error("size of file " + Path + " is invalid");
 
