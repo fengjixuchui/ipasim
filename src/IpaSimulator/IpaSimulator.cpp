@@ -286,18 +286,6 @@ static uint32_t getHigh(uint64_t Val) {
   LI.QuadPart = Val;
   return LI.HighPart;
 }
-class MapViewGuard {
-public:
-  MapViewGuard(void *Ptr) : Ptr(Ptr) {}
-  ~MapViewGuard() noexcept(false) {
-    // TODO: Handle errors better.
-    if (!UnmapViewOfFile(Ptr))
-      throw "couldn't unmap";
-  }
-
-private:
-  void *Ptr;
-};
 LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
   using namespace LIEF::MachO;
 
@@ -323,29 +311,22 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
   }
 
   // Memory-map the whole file for parsing.
+  // TODO: Due to this, we have the file twice in virtual memory.
   void *PPtr =
       MapViewOfFile(FileMapping, FILE_MAP_READ, 0, 0, FileSizeLI.QuadPart);
   if (!PPtr) {
     error("couldn't map file " + Path, /* AppendLastError */ true);
     return nullptr;
   }
-  MapViewGuard MVG(PPtr);
 
   // Get bytes.
   vector<uint8_t> Bytes(bytes(PPtr), bytes(PPtr) + FileSizeLI.QuadPart);
 
+  // Parse the binary.
   unique_ptr<FatBinary> Fat(Parser::parse(Bytes, Path));
-  Binary &Bin = Fat->at(0);
-
-#if 0
-  auto LL = make_unique<LoadedDylib>(Parser::parse(Path));
-  LoadedDylib *LLP = LL.get();
-
+  auto LL = make_unique<LoadedDylib>(move(Bytes), move(Fat));
   // TODO: Select the correct binary more intelligently.
   Binary &Bin = LL->Bin;
-
-  LIs[Path] = move(LL);
-#endif
 
   // Check header.
   Header &Hdr = Bin.header();
@@ -362,9 +343,12 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
   // also `ImageLoaderMachO::assignSegmentAddresses`.
   uint64_t VirtualSize = 0;
   uint64_t FileSize = 0;
+  uint64_t LowAddr = -1;
   for (SegmentCommand &Seg : Bin.segments()) {
     VirtualSize += Seg.virtual_size();
     FileSize += Seg.file_size();
+    if (Seg.virtual_address() < LowAddr)
+      LowAddr = Seg.virtual_address();
   }
   if (VirtualSize < FileSize) {
     error("virtual size is less than file size of " + Path);
@@ -406,6 +390,15 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
   uint64_t Addr = reinterpret_cast<uint64_t>(Ptr);
   assert((Addr & (SI.dwPageSize - 1)) == 0 &&
          "Allocated memory is not aligned to page size.");
+
+  // Compute slide. See `ImageLoaderMachO::assignSegmentAddresses`.
+  uint64_t Slide = Addr - LowAddr;
+
+  // Remember the binary.
+  LL->StartAddress = Slide;
+  LL->Size = VirtualSize;
+  LoadedDylib *LLP = LL.get();
+  LIs[Path] = move(LL);
 
   // Map the segments. Inspired by `ImageLoaderMachO::mapSegments`.
   bool Error = false;
@@ -486,57 +479,9 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
 
     // Emulated virtual address is actually equal to the "real" virtual address.
     mapMemory(Addr + Seg.virtual_address(), Seg.virtual_size(), Perms);
-  }
-  assert((Error || RestOffset == RestSize) &&
-         "Not all of virtual-only memory was used.");
-
-#if 0
-  uintptr_t Addr = (uintptr_t)_aligned_malloc(Size, PageSize);
-  if (!Addr)
-    error("couldn't allocate memory for segments");
-  uint64_t Slide = Addr - LowAddr;
-  LLP->StartAddress = Slide;
-  LLP->Size = Size;
-
-  // Load segments. Inspired by `ImageLoaderMachO::mapSegments`.
-  for (SegmentCommand &Seg : Bin.segments()) {
-    // Convert protection.
-    uint32_t VMProt = Seg.init_protection();
-    uc_prot Perms = UC_PROT_NONE;
-    if (VMProt & (uint32_t)VM_PROTECTIONS::VM_PROT_READ) {
-      Perms |= UC_PROT_READ;
-    }
-    if (VMProt & (uint32_t)VM_PROTECTIONS::VM_PROT_WRITE) {
-      Perms |= UC_PROT_WRITE;
-    }
-    if (VMProt & (uint32_t)VM_PROTECTIONS::VM_PROT_EXECUTE) {
-      Perms |= UC_PROT_EXEC;
-    }
-
-    uint64_t VAddr = Seg.virtual_address() + Slide;
-    // Emulated virtual address is actually equal to the "real" virtual
-    // address.
-    uint8_t *Mem = reinterpret_cast<uint8_t *>(VAddr);
-    uint64_t VSize = Seg.virtual_size();
-
-    if (Perms == UC_PROT_NONE) {
-      // No protection means we don't have to copy any data, we just map it.
-      mapMemory(VAddr, VSize, Perms);
-    } else {
-      // TODO: Memory-map the segment instead of copying it.
-      auto &Buff = Seg.content();
-      // TODO: Copy to the end of the allocated space if flag `SG_HIGHVM` is
-      // present.
-      memcpy(Mem, Buff.data(), Buff.size());
-      mapMemory(VAddr, VSize, Perms);
-
-      // Clear the remaining memory.
-      if (Buff.size() < VSize)
-        memset(Mem + Buff.size(), 0, VSize - Buff.size());
-    }
 
     // Relocate addresses. Inspired by `ImageLoaderMachOClassic::rebase`.
-    if (Slide > 0) {
+    if (Slide)
       for (Relocation &Rel : Seg.relocations()) {
         if (Rel.is_pc_relative() ||
             Rel.origin() != RELOCATION_ORIGINS::ORIGIN_DYLDINFO ||
@@ -550,10 +495,11 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
         uint64_t RelAddr = RelBase + Rel.address();
 
         // TODO: Implement what `ImageLoader::containsAddress` does.
-        if (RelAddr > VAddr + VSize || RelAddr < VAddr)
+        if (RelAddr > Addr + Seg.virtual_address() + Seg.virtual_size() ||
+            RelAddr < Addr + Seg.virtual_address())
           error("relocation target out of range");
 
-        uint32_t *Val = (uint32_t *)RelAddr;
+        uint32_t *Val = reinterpret_cast<uint32_t *>(RelAddr);
         // We actively leave NULL pointers untouched. Technically it would be
         // correct to slide them because the PAGEZERO segment slid, too. But
         // programs probably wouldn't be happy if their NULLs were non-zero.
@@ -562,8 +508,9 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
         if (*Val != 0)
           *Val = *Val + Slide;
       }
-    }
   }
+  assert((Error || RestOffset == RestSize) &&
+         "Not all of virtual-only memory was used.");
 
   // Load referenced libraries. See also #22.
   for (DylibCommand &Lib : Bin.libraries())
@@ -608,9 +555,6 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
   }
 
   return LLP;
-#else
-  return nullptr;
-#endif
 }
 LoadedLibrary *DynamicLoader::loadPE(const string &Path) {
   using namespace LIEF::PE;
