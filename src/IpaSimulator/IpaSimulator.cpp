@@ -202,6 +202,12 @@ DynamicLoader::DynamicLoader(uc_engine *UC)
   void *KernelPtr = _aligned_malloc(PageSize, PageSize);
   KernelAddr = reinterpret_cast<uint64_t>(KernelPtr);
   mapMemory(KernelAddr, PageSize, UC_PROT_NONE);
+
+  // Check system's page size.
+  SYSTEM_INFO SI;
+  GetSystemInfo(&SI);
+  if (SI.dwPageSize != PageSize)
+    error("unexpected system page size");
 }
 
 LoadedLibrary *DynamicLoader::load(const string &Path) {
@@ -342,13 +348,16 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
   // slide together (see `ImageLoaderMachO::segmentsMustSlideTogether`). See
   // also `ImageLoaderMachO::assignSegmentAddresses`.
   uint64_t VirtualSize = 0;
+  uint64_t VirtOnlySize = 0;
   uint64_t FileSize = 0;
   uint64_t LowAddr = -1;
   for (SegmentCommand &Seg : Bin.segments()) {
-    VirtualSize += Seg.virtual_size();
+    uint64_t VAddr = alignToPageSize(Seg.virtual_address());
+    VirtualSize += roundToPageSize(Seg.virtual_size());
+    VirtOnlySize += Seg.file_size() ? 0 : roundToPageSize(Seg.virtual_size());
     FileSize += Seg.file_size();
-    if (Seg.virtual_address() < LowAddr)
-      LowAddr = Seg.virtual_address();
+    if (VAddr < LowAddr)
+      LowAddr = VAddr;
   }
   if (VirtualSize < FileSize) {
     error("virtual size is less than file size of " + Path);
@@ -358,25 +367,20 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
   if (FileSize > FileSizeLI.QuadPart)
     error("size of file " + Path + " is invalid");
 
-  // Retrieve system's page size.
-  SYSTEM_INFO SI;
-  GetSystemInfo(&SI);
-
   // Also create section for virtual-only memory.
-  uint64_t RestSize = VirtualSize - FileSize;
-  HANDLE RestMapping;
-  if (RestSize) {
-    RestMapping =
-        CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
-                           getHigh(RestSize), getLow(RestSize), nullptr);
-    if (!RestMapping) {
+  HANDLE VirtOnlyMapping;
+  if (VirtOnlySize) {
+    VirtOnlyMapping = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr,
+                                         PAGE_READWRITE, getHigh(VirtOnlySize),
+                                         getLow(VirtOnlySize), nullptr);
+    if (!VirtOnlyMapping) {
       error("couldn't create virtual-only mapping for " + Path,
             /* AppendLastError */ true);
       return nullptr;
     }
   } else
-    RestMapping = nullptr;
-  uint64_t RestOffset = 0;
+    VirtOnlyMapping = nullptr;
+  uint64_t VirtOnlyOffset = 0;
 
   // Allocate space for the segments.
   void *Ptr = VirtualAlloc2(nullptr, nullptr, VirtualSize,
@@ -388,7 +392,7 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
     return nullptr;
   }
   uint64_t Addr = reinterpret_cast<uint64_t>(Ptr);
-  assert((Addr & (SI.dwPageSize - 1)) == 0 &&
+  assert((Addr & (PageSize - 1)) == 0 &&
          "Allocated memory is not aligned to page size.");
 
   // Compute slide. See `ImageLoaderMachO::assignSegmentAddresses`.
@@ -401,26 +405,31 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
   LIs[Path] = move(LL);
 
   // Map the segments. Inspired by `ImageLoaderMachO::mapSegments`.
+  uint64_t HighAddr = Addr + VirtualSize;
   bool Error = false;
   for (SegmentCommand &Seg : Bin.segments()) {
-    void *SuggestedAddr =
-        reinterpret_cast<void *>(Addr + Seg.virtual_address());
+    // This is also what `ImageLoaderMachO::assignSegmentAddresses` does.
+    uint64_t VAddr = alignToPageSize(Addr + Seg.virtual_address());
+    uint64_t VSize = roundToPageSize(Seg.virtual_size());
 
-    // First, release placeholder.
-    if (!VirtualFree(SuggestedAddr, Seg.virtual_size(),
+    void *SuggestedAddr = reinterpret_cast<void *>(VAddr);
+
+    // Split placeholder if necessary.
+    if (VAddr + VSize != HighAddr &&
+        !VirtualFree(SuggestedAddr, VSize,
                      MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER)) {
-      error("couldn't release placeholder for segment " + Seg.name() + " of " +
+      error("couldn't split placeholder for segment " + Seg.name() + " of " +
                 Path,
             /* AppendLastError */ true);
       Error = true;
       continue;
     }
 
-    // Then, do memory-mapping.
+    // Map contents of the segment from the binary.
     if (Seg.file_size()) {
       void *SegAddr = MapViewOfFile3(
-          FileMapping, nullptr, SuggestedAddr, Seg.file_offset(),
-          Seg.file_size(), MEM_REPLACE_PLACEHOLDER, PAGE_WRITECOPY, nullptr, 0);
+          FileMapping, nullptr, SuggestedAddr, Seg.file_offset(), VSize,
+          MEM_REPLACE_PLACEHOLDER, PAGE_WRITECOPY, nullptr, 0);
       if (!SegAddr) {
         error("couldn't map segment " + Seg.name() + " of " + Path,
               /* AppendLastError */ true);
@@ -431,37 +440,39 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
              "MapViewOfFile3 didn't map to suggested address.");
     }
 
-    // Finally, map the remaining virtual-only memory.
+    // Map the remaining virtual-only memory.
     if (Seg.virtual_size() < Seg.file_size()) {
       error("virtual size is less then file size of segment " + Seg.name() +
             " of " + Path);
       Error = true;
       continue;
     }
-    uint64_t Rest = Seg.virtual_size() - Seg.file_size();
-    if (Rest) {
-      assert(RestSize && RestMapping &&
-             "Unexpected virtual-only part of a segment.");
-      void *SuggestedRestAddr = reinterpret_cast<void *>(
-          Addr + Seg.virtual_address() + Seg.file_size());
+    uint64_t VirtOnly = Seg.virtual_size() - Seg.file_size();
+    if (VirtOnly) {
+      // If we haven't mapped some part of the binary, we have to map from
+      // VirtOnlyMapping. Otherwise, we can just clear the virtual-only part of
+      // the mapped region.
+      if (!Seg.file_size()) {
+        void *VirtOnlyAddr = MapViewOfFile3(
+            VirtOnlyMapping, nullptr, SuggestedAddr, VirtOnlyOffset, VSize,
+            MEM_REPLACE_PLACEHOLDER, PAGE_READWRITE, nullptr, 0);
+        if (!VirtOnlyAddr) {
+          error("couldn't map virtual-only part of segment " + Seg.name() +
+                    " of " + Path,
+                /* AppendLastError */ true);
+          Error = true;
+          continue;
+        }
+        assert(VirtOnlyAddr == SuggestedAddr &&
+               "MapViewOfFile3 didn't map to suggested address.");
+        VirtOnlyOffset += VSize;
 
-      // Map the memory.
-      void *RestAddr = MapViewOfFile3(RestMapping, nullptr, SuggestedRestAddr,
-                                      RestOffset, Rest, MEM_REPLACE_PLACEHOLDER,
-                                      PAGE_READWRITE, nullptr, 0);
-      if (!RestAddr) {
-        error("couldn't map virtual-only part of segment " + Seg.name() +
-                  " of " + Path,
-              /* AppendLastError */ true);
-        Error = true;
-        continue;
-      }
-      assert(RestAddr == SuggestedRestAddr &&
-             "MapViewOfFile3 didn't map to suggested address.");
-      RestOffset += Rest;
-
-      // Clear the memory.
-      memset(RestAddr, 0, Rest);
+        // Clear the memory.
+        memset(VirtOnlyAddr, 0, VSize);
+      } else
+        memset(reinterpret_cast<void *>(Addr + Seg.virtual_address() +
+                                        Seg.file_size()),
+               0, VirtOnly);
     }
 
     // Convert protection.
@@ -495,8 +506,7 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
         uint64_t RelAddr = RelBase + Rel.address();
 
         // TODO: Implement what `ImageLoader::containsAddress` does.
-        if (RelAddr > Addr + Seg.virtual_address() + Seg.virtual_size() ||
-            RelAddr < Addr + Seg.virtual_address())
+        if (RelAddr > VAddr + VSize || RelAddr < VAddr)
           error("relocation target out of range");
 
         uint32_t *Val = reinterpret_cast<uint32_t *>(RelAddr);
@@ -509,7 +519,7 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
           *Val = *Val + Slide;
       }
   }
-  assert((Error || RestOffset == RestSize) &&
+  assert((Error || VirtOnlyOffset == VirtOnlySize) &&
          "Not all of virtual-only memory was used.");
 
   // Load referenced libraries. See also #22.
