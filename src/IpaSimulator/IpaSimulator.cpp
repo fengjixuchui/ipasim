@@ -428,8 +428,8 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
     // Map contents of the segment from the binary.
     if (Seg.file_size()) {
       void *SegAddr = MapViewOfFile3(
-          FileMapping, nullptr, SuggestedAddr, Seg.file_offset(), VSize,
-          MEM_REPLACE_PLACEHOLDER, PAGE_WRITECOPY, nullptr, 0);
+          FileMapping, nullptr, SuggestedAddr, Seg.file_offset(),
+          Seg.file_size(), MEM_REPLACE_PLACEHOLDER, PAGE_WRITECOPY, nullptr, 0);
       if (!SegAddr) {
         error("couldn't map segment " + Seg.name() + " of " + Path,
               /* AppendLastError */ true);
@@ -470,6 +470,11 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
         // Clear the memory.
         memset(VirtOnlyAddr, 0, VSize);
       } else
+        // TODO: This probably won't work if VirtOnly spans over more than one
+        // page. The reason it works now is because `MapViewOfFile3` above
+        // probably rounds `Seg.file_size()` to page size (although we cannot
+        // round it manually as it would sometimes point outside the binary
+        // which is illegal).
         memset(reinterpret_cast<void *>(Addr + Seg.virtual_address() +
                                         Seg.file_size()),
                0, VirtOnly);
@@ -489,7 +494,7 @@ LoadedLibrary *DynamicLoader::loadMachO(const string &Path) {
     }
 
     // Emulated virtual address is actually equal to the "real" virtual address.
-    mapMemory(Addr + Seg.virtual_address(), Seg.virtual_size(), Perms);
+    mapMemory(VAddr, VSize, Perms);
 
     // Relocate addresses. Inspired by `ImageLoaderMachOClassic::rebase`.
     if (Slide)
