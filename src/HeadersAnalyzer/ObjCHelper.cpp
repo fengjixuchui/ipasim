@@ -41,7 +41,6 @@ void ObjCMethodScout::discoverMethods() {
   Meta.forceObjC2(true);
   findMethods(Meta.classes());
   findMethods(Meta.categories());
-  findMethods(Meta.protocols());
 }
 
 template <typename ListTy>
@@ -57,7 +56,7 @@ void ObjCMethodScout::findMethods(Expected<ListTy> &&List) {
       continue;
     }
 
-    auto Name = Element->getName();
+    auto Name = getClassName(*Element);
     if (!Name) {
       Log.error(toString(Name.takeError()));
       continue;
@@ -65,19 +64,18 @@ void ObjCMethodScout::findMethods(Expected<ListTy> &&List) {
 
     registerMethods(*Name, Element->instanceMethods(), /* Static */ false);
     registerMethods(*Name, Element->classMethods(), /* Static */ true);
-    registerOptionalMethods(*Name, *Element);
   }
 }
 
-template <typename ElementTy>
-void ObjCMethodScout::registerOptionalMethods(StringRef, const ElementTy &) {}
 template <>
-void ObjCMethodScout::registerOptionalMethods<ObjCProtocol>(
-    StringRef ProtocolName, const ObjCProtocol &Protocol) {
-  registerMethods(ProtocolName, Protocol.optionalInstanceMethods(),
-                  /* Static */ false);
-  registerMethods(ProtocolName, Protocol.optionalClassMethods(),
-                  /* Static */ true);
+Expected<StringRef>
+ObjCElement<ObjCClass>::getClassName(const ObjCClass &Class) {
+  return Class.getName();
+}
+template <>
+Expected<StringRef>
+ObjCElement<ObjCCategory>::getClassName(const ObjCCategory &Category) {
+  return Category.getBaseClassName();
 }
 
 void ObjCMethodScout::registerMethods(StringRef ElementName,
