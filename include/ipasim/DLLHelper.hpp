@@ -26,8 +26,6 @@ public:
   void load(LLDBHelper &LLDB, ClangHelper &Clang,
             clang::CodeGen::CodeGenModule *CGM);
   void generate(const DirContext &DC, bool Debug);
-  bool analyzeWindowsFunction(const std::string &Name, uint32_t RVA,
-                              bool IgnoreDuplicates, ExportPtr &Exp);
   template <typename... ArgTys, typename FTy = void(ArgTys...)>
   static void forEach(HAContext &HAC, LLVMHelper &LLVM, FTy DLLHelper::*Func,
                       ArgTys &&... Args) {
@@ -48,6 +46,9 @@ private:
   std::filesystem::path DLLPath;
   std::string DLLPathStr;
   std::set<uint32_t> Exports;
+
+  bool analyzeWindowsFunction(const std::string &Name, uint32_t RVA,
+                              bool IgnoreDuplicates, ExportPtr &Exp);
 };
 
 } // namespace ipasim

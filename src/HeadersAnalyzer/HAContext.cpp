@@ -36,11 +36,26 @@ template <LibType T> llvm::FunctionType *ExportEntry::getType() const {
 template llvm::FunctionType *ExportEntry::getType<LibType::Dylib>() const;
 template llvm::FunctionType *ExportEntry::getType<LibType::DLL>() const;
 
-bool HAContext::isClassMethod(const string &Name) {
+bool ObjC::isClassMethod(const string &Name) {
   return (Name[0] == '+' || Name[0] == '-') && Name[1] == '[';
 }
+void ObjC::dropCategoryName(string &Name) {
+  if (!isClassMethod(Name))
+    return;
+
+  size_t LParen = Name.find('(', 2);
+  if (LParen == string::npos)
+    return;
+
+  size_t RParen = Name.find(')', LParen + 1);
+  if (RParen == string::npos)
+    return;
+
+  Name.replace(Name.begin() + LParen, Name.begin() + RParen + 1, "");
+}
+
 ClassExportPtr HAContext::findClassMethod(const string &Name) {
-  if (iOSClasses.empty() || !isClassMethod(Name))
+  if (iOSClasses.empty() || !ObjC::isClassMethod(Name))
     return iOSClasses.end();
 
   // Find the first space.

@@ -147,6 +147,11 @@ struct ClassExport {
   bool operator<(const ClassExport &Other) const { return Name < Other.Name; }
 };
 
+struct ObjC {
+  static bool isClassMethod(const std::string &Name);
+  static void dropCategoryName(std::string &Name);
+};
+
 class HAContext {
 public:
   ExportList iOSExps;
@@ -159,7 +164,6 @@ public:
   static constexpr ConstexprString MsgLookupPrefix = "_objc_msgLookup";
   static constexpr ConstexprString MsgNilPrefix = "__objc_msgNil";
 
-  bool isClassMethod(const std::string &Name);
   // This is an inverse of `CGObjCCommonMac::GetNameForMethod`.
   // TODO: Find out whether there aren't any Objective-C method name parsers
   // somewhere in the LLVM ecosystem already.

@@ -65,6 +65,8 @@ void DLLHelper::load(LLDBHelper &LLDB, ClangHelper &Clang, CodeGenModule *CGM) {
         !UN.compare(1, Name.length(), Name))
       Name = move(UN);
 
+    ObjC::dropCategoryName(Name);
+
     ExportPtr Exp;
     if (!analyzeWindowsFunction(Name, RVA, IgnoreDuplicates, Exp))
       return;
@@ -345,7 +347,7 @@ void DLLHelper::generate(const DirContext &DC, bool Debug) {
 bool DLLHelper::analyzeWindowsFunction(const string &Name, uint32_t RVA,
                                        bool IgnoreDuplicates, ExportPtr &Exp) {
   // We are only interested in exported symbols or Objective-C methods.
-  if (!HAC.isClassMethod(Name) && Exports.find(RVA) == Exports.end())
+  if (!ObjC::isClassMethod(Name) && Exports.find(RVA) == Exports.end())
     return false;
 
   // Find the corresponding export info from TBD files.
