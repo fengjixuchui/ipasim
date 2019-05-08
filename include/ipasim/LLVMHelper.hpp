@@ -86,8 +86,8 @@ private:
 
 class IRHelper {
 public:
-  IRHelper(LLVMHelper &LLVM, llvm::StringRef Name, llvm::StringRef Path,
-           llvm::StringRef Triple);
+  IRHelper(HAContext &HAC, LLVMHelper &LLVM, llvm::StringRef Name,
+           llvm::StringRef Path, llvm::StringRef Triple);
 
   static const char *const Windows32;
   static const char *const Apple;
@@ -118,6 +118,7 @@ public:
   }
 
 private:
+  HAContext &HAC;
   LLVMHelper &LLVM;
   llvm::Module Module;
   std::unique_ptr<llvm::TargetMachine> TM;

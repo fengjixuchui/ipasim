@@ -121,8 +121,8 @@ void DLLHelper::load(LLDBHelper &LLDB, ClangHelper &Clang, CodeGenModule *CGM) {
 }
 
 void DLLHelper::generate(const DirContext &DC, bool Debug) {
-  IRHelper IR(LLVM, DLL.Name, DLLPath.string(), IRHelper::Windows32);
-  IRHelper DylibIR(LLVM, DLL.Name, DLLPath.string(), IRHelper::Apple);
+  IRHelper IR(HAC, LLVM, DLL.Name, DLLPath.string(), IRHelper::Windows32);
+  IRHelper DylibIR(HAC, LLVM, DLL.Name, DLLPath.string(), IRHelper::Apple);
 
   // Since we are transferring data in memory across architectures, they
   // must have the same endianness for that to work.

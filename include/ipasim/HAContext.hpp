@@ -62,11 +62,13 @@ using DLLEntryList = std::vector<DLLEntry>;
 using DLLPtr = size_t;
 
 struct DLLEntry {
-  DLLEntry(std::string Name) : Name(Name) {}
+  DLLEntry(std::string Name)
+      : Name(Name), SimpleName(std::filesystem::path(Name).stem().string()) {}
 
   std::string Name;
   std::vector<ExportPtr> Exports;
   ExportPtr ReferenceSymbol;
+  std::string SimpleName; // name without extension
 };
 
 struct DLLGroup {

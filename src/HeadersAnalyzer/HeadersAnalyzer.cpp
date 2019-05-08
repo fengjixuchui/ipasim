@@ -180,7 +180,7 @@ public:
     for (auto [LibIdx, Lib] : withIndices(HAC.iOSLibs)) {
       string LibNo = to_string(LibIdx);
 
-      IRHelper IR(LLVM, LibNo, Lib.Name, IRHelper::Apple);
+      IRHelper IR(HAC, LLVM, LibNo, Lib.Name, IRHelper::Apple);
 
       // Generate function wrappers.
       // TODO: Shouldn't we use aligned instructions?
@@ -472,10 +472,10 @@ private:
   }
   void createAlias(const ExportEntry &Exp, llvm::Function *Func) {
     llvm::StringRef RVAStr = LLVM.Saver.save(to_string(Exp.RVA));
-    llvm::StringRef DLLName = LLVM.Saver.save(
-        path(HAC.DLLGroups[Exp.DLLGroup].DLLs[Exp.DLL].Name).stem().string());
     llvm::GlobalAlias::create(
-        Twine("\01$__ipaSim_wraps_") + DLLName + "_" + RVAStr, Func);
+        Twine("\01$__ipaSim_wraps_") +
+            HAC.DLLGroups[Exp.DLLGroup].DLLs[Exp.DLL].SimpleName + "_" + RVAStr,
+        Func);
   }
 };
 

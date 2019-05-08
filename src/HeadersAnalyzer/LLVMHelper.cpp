@@ -46,9 +46,9 @@ string LLVMHelper::mangleName(const Function &Func) {
   return Name.str().str();
 }
 
-IRHelper::IRHelper(LLVMHelper &LLVM, StringRef Name, StringRef Path,
-                   StringRef Triple)
-    : LLVM(LLVM), Builder(LLVM.Ctx), Module(Name, LLVM.Ctx) {
+IRHelper::IRHelper(HAContext &HAC, LLVMHelper &LLVM, StringRef Name,
+                   StringRef Path, StringRef Triple)
+    : HAC(HAC), LLVM(LLVM), Builder(LLVM.Ctx), Module(Name, LLVM.Ctx) {
 
   // Get target from the triple provided.
   string Error;
@@ -97,8 +97,11 @@ Function *IRHelper::declareFunc(const ExportEntry &Exp, bool Wrapper) {
   // This is needed to keep `to_string(Exp.RVA)` alive.
   StringRef WrapperRVA(LLVM.Saver.save(to_string(Exp.RVA)));
 
-  auto Name =
-      Wrapper ? Twine("$__ipaSim_wrapper_") + WrapperRVA : Twine(Exp.Name);
+  auto Name = Wrapper
+                  ? Twine("$__ipaSim_wrapper_") +
+                        HAC.DLLGroups[Exp.DLLGroup].DLLs[Exp.DLL].SimpleName +
+                        "_" + WrapperRVA
+                  : Twine(Exp.Name);
 
   FunctionType *Type = Wrapper
                            ? (Exp.isTrivial() ? TrivialWrapperTy : WrapperTy)
