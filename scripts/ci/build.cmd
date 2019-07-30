@@ -20,7 +20,7 @@ git lfs install
 
 rem Clone sources.
 if exist .\ipasim\ (
-    rem See #14.
+    rem See i14.
     cd ipasim
     git pull --recurse-submodules
 ) else (
@@ -39,7 +39,7 @@ if [%BUILD_TABLEGENS_ONLY%]==[1] (
 )
 
 rem Build.
-docker login -u ipasim -p %DOCKER_PASSWORD%
+docker login -u janjones -p %DOCKER_PASSWORD%
 if [%PULL_BUILD_ARTIFACTS%]==[1] (
     docker pull ipasim/artifacts
     docker tag ipasim/artifacts ipasim/build
